@@ -1,0 +1,65 @@
+<h2 id="blockchain-state-tracking">3. Blockchain State Tracking</h2>
+<p>To support delayed execution, the blockchain state must track the results of executed blocks for next-block validation.</p>
+
+<h4>New Blockchain Attributes</h4>
+<p>The <a href="https://github.com/ethereum/execution-specs/blob/ae2c77989cb83e5d5e5eb1f51d9da840a337d5b0/src/ethereum/prague/fork.py#L102"><code>BlockChain</code></a> class gains four new attributes to track the last executed block's outcomes:</p>
+
+<div class="code-block">
+    <div class="code-header">
+        <span>BlockChain Class Extensions (prague/fork.py)</span>
+        <div class="toggle-btn" onclick="return toggleCodeBlock(this, event)" style="cursor:pointer">−</div>
+    </div>
+    <div class="code-content">
+        <pre><code class="language-python">class BlockChain:
+    # Existing attributes
+    ...
+    
+    # New attributes for delayed execution
+    last_block_gas_used: int
+    last_receipt_root: Root
+    last_block_logs_bloom: Bloom
+    last_requests_hash: Hash32</code></pre>
+    </div>
+</div>
+
+<p>These attributes are updated at the end of executing each block to record the actual gas used, receipts root, logs bloom, and requests hash of that block. They essentially mirror the deferred fields discussed in the header changes, making them available for the next block's validation.</p>
+
+<h4>Purpose and Function</h4>
+<p>Since the header now carries the parent's values, the chain needs to remember the latest execution results. For example, after executing block N:</p>
+<ul>
+    <li><code>chain.last_receipt_root</code> is set to block N's receipts root</li>
+    <li>When validating block N+1, code will compare <code>block.header.parent_receipt_root</code> against <code>chain.last_receipt_root</code></li>
+    <li>This ensures block N+1 correctly references block N's outputs</li>
+</ul>
+
+<div class="code-block">
+    <div class="code-header">
+        <span>State Transition Checks (prague/fork.py)</span>
+        <div class="toggle-btn" onclick="return toggleCodeBlock(this, event)" style="cursor:pointer">−</div>
+    </div>
+    <div class="code-content">
+        <pre><code class="language-python">
+def state_transition(chain: BlockChain, block: Block) -> None:
+    ...
+    # In state_transition after apply_body
+    chain.last_block_gas_used = apply_body_output.block_gas_used  
+    chain.last_block_logs_bloom = apply_body_output.block_logs_bloom  
+    chain.last_receipt_root = apply_body_output.receipt_root  
+    chain.last_requests_hash = apply_body_output.requests_hash</code></pre>
+</div>
+</div>
+
+<div class="implementation-note">
+    <div class="implementation-note-title">Implementation Note</div>
+    <div class="implementation-note-content">
+        This state tracking is necessary to verify deferred commitments across blocks. Without storing these values, the node couldn't verify the parent's data against the new header.
+    </div>
+</div>
+
+<div class="edge-implications">
+    <div class="edge-implications-title">Edge Cases</div>
+    <div class="edge-implications-content">
+        <p>On fork transition or genesis, these <code>last_*</code> values must be initialized appropriately. For example, genesis parent outputs are known constants. When transitioning to this new fork, the code likely needs to initialize <code>last_block_gas_used</code>, etc., from the last block of the old fork so that the first Prague block's <code>pre_state_root</code> and <code>parent_*</code> fields can be checked.</p>
+        <p>A mismatch between a new block's <code>parent_*</code> fields and the chain's recorded <code>last_*</code> values will immediately flag the block as invalid, catching any discrepancy in the deferred commitments.</p>
+    </div>
+</div> 

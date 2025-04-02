@@ -1,0 +1,86 @@
+<h2 id="transaction-execution-changes">7. Transaction Execution Changes</h2>
+<p>The <a href="https://github.com/ethereum/execution-specs/blob/ae2c77989cb83e5d5e5eb1f51d9da840a337d5b0/src/ethereum/prague/fork.py#L999"><code></code>process_transaction</code></a> function requires modifications to support delayed execution. The key changes involve fee handling and how transactions are processed when pre-execution checks fail.</p>
+
+<h4>Modified Transaction Execution</h4>
+<p>The revised transaction execution process:</p>
+<ol>
+    <li>Calculate intrinsic gas costs and calldata floor gas costs</li>
+    <li>Increment sender's nonce</li>
+    <li>Subtract max gas fee and blob gas fee from sender's balance</li>
+    <li>Prepare and process the message call</li>
+    <li>Calculate total gas used including execution gas refund</li>
+    <li>Apply gas refund to the sender</li>
+    <li>Calculate and apply priority fees to the coinbase</li>
+    <li>Refund inclusion costs for executed transactions</li>
+</ol>
+
+<div class="code-block">
+    <div class="code-header">
+        <span>Transaction Processing (prague/transactions.py)</span>
+        <div class="toggle-btn" onclick="return toggleCodeBlock(this, event)" style="cursor:pointer">−</div>
+    </div>
+    <div class="code-content">
+        <pre><code class="language-python">def process_transaction(
+    env: vm.Environment, tx: Transaction
+) -> Tuple[Uint, Tuple[Log, ...], Optional[EthereumException]]:
+    # Calculate intrinsic gas cost and calldata floor gas cost
+    intrinsic_gas, calldata_floor_gas_cost = calculate_intrinsic_gas_cost(tx)
+    sender = env.origin
+    sender_account = get_account(env.state, sender)
+    coinbase_account = get_account(env.state, env.coinbase)
+    increment_nonce(env.state, sender)
+
+    # Calculate max gas fee and blob gas fee
+    max_gas_fee = tx.gas * env.gas_price
+    blob_gas_fee = calculate_data_fee(env.excess_blob_gas, tx)
+
+    # Subtract max gas fee and blob gas fee from sender's balance
+    sender_balance_after_gas_fee = (
+        sender_account.balance
+        - U256(max_gas_fee + blob_gas_fee)
+    )
+    set_account_balance(env.state, sender, sender_balance_after_gas_fee)
+    ...
+    gas = tx.gas - intrinsic_gas
+    message = prepare_message(...)
+
+    output = process_message_call(message, env)
+
+    ...
+
+    # Calculate inclusion cost refund for the coinbase
+    inclusion_cost_refund = (
+        calculate_inclusion_gas_cost(tx)[1] * env.base_fee_per_gas
+        + blob_gas_fee
+    )
+    
+    # transfer priority fees and refund inclusion cost
+    coinbase_balance_after_transaction = (
+        coinbase_account.balance 
+        + U256(priority_fee)
+        + U256(inclusion_cost_refund)
+    )
+    if coinbase_balance_after_transaction != 0:
+        set_account_balance(
+            env.state, env.coinbase, coinbase_balance_after_transaction
+        )
+    ...</code></pre>
+    </div>
+</div>
+
+
+<div class="implementation-note">
+    <div class="implementation-note-title">Implementation Note</div>
+    <div class="implementation-note-content">
+        <p>The <code>calldata_floor_gas_cost</code> is a new concept in Prague that ensures transactions pay at least the cost of their calldata, regardless of how little gas they actually use during execution. This provides a minimum cost for network resources even if execution is optimized.</p>
+        <p>The calculation <code>total_gas_used = max(total_gas_used, calldata_floor_gas_cost)</code> ensures transactions can't optimize away their contribution to network costs by having highly efficient execution.</p>
+        <p>The inclusion cost refund calculation <code>calculate_inclusion_gas_cost(tx)[1] * env.base_fee_per_gas + blob_gas_fee</code> covers both the base fee portion of inclusion gas and any blob fees. For executed (non-skipped) transactions, this is returned to the coinbase rather than being burned. Refunding inclusion costs only for executed transactions ensures block builders have a clear incentive to not include skipped transactions in their blocks.</p>
+    </div>
+</div>
+
+<div class="edge-implications">
+    <div class="edge-implications-title">Incompatibility Implications</div>
+    <div class="edge-implications-content">
+        <p>Delayed execution is incompatible with proposals that require immediate execution for additional EL payload validation that go beyond the validity checks of individual transactions. On example is FOCIL, the inclusion list EIP, which requires ILs to be verified after executing every transaction in the block. There are <a href="https://hackmd.io/@Nerolation/BJFix4E2kx">solutions to this problem</a> though.</p>
+    </div>
+</div>

@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Delayed Execution: EIP-7886 - Info Doc</title>
+    <link rel="stylesheet" href="css/styles.css">
+    
+    <!-- Prism.js for syntax highlighting -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism.min.css" rel="stylesheet" id="prism-theme-light" />
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" id="prism-theme-dark" disabled />
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.css" rel="stylesheet" />
+    
+    <style>
+        /* Custom loading overlay */
+        #overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(255, 255, 255, 0.9);
+            z-index: 9999;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: opacity 0.3s ease;
+        }
+        
+        [data-theme="dark"] #overlay {
+            background-color: rgba(0, 0, 0, 0.9);
+        }
+        
+        .spinner {
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #0066cc;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin-right: 15px;
+        }
+        
+        .loading-text {
+            font-size: 18px;
+            font-weight: bold;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .loading-container {
+            display: flex;
+            align-items: center;
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading overlay -->
+    <div id="overlay">
+        <div class="loading-container">
+            <div class="spinner"></div>
+            <div class="loading-text">Loading content...</div>
+        </div>
+    </div>
+
+    <header>
+        <h1>Delayed Execution: EIP-7886 - Info Doc</h1>
+        <div class="theme-switch-wrapper">
+            <label class="theme-switch" for="checkbox">
+                <input type="checkbox" id="checkbox" />
+                <div class="slider"></div>
+            </label>
+            <span class="theme-label">Dark Mode</span>
+        </div>
+    </header>
+
+    <div class="container" id="content-container">
+        <!-- Content will be loaded here dynamically -->
+    </div>
+
+    <!-- Prism.js for syntax highlighting -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.js"></script>
+    
+    <!-- Main scripts -->
+    <script src="js/script.js"></script>
+    <script src="js/initialize_code_blocks.js"></script>
+    <script src="js/standardize_code_blocks.js"></script>
+    <script src="js/initialize_code_blocks.js"></script>
+    
+    <script>
+        // Function to hide loading overlay
+        function hideOverlay() {
+            const overlay = document.getElementById('overlay');
+            if (overlay) {
+                overlay.style.opacity = '0';
+                setTimeout(() => {
+                    if (overlay.parentNode) {
+                        overlay.parentNode.removeChild(overlay);
+                    }
+                }, 300);
+            }
+        }
+
+        // Load content and initialize
+        document.addEventListener('DOMContentLoaded', async function() {
+            try {
+                console.log("Starting content loading process...");
+                await loadContent();
+                hideOverlay();
+                
+                // Dispatch content loaded event
+                document.dispatchEvent(new CustomEvent('content-loaded'));
+                
+                // Force re-highlight after everything is loaded
+                if (window.Prism) {
+                    setTimeout(() => {
+                        console.log("Final highlight pass after all content loaded");
+                        Prism.highlightAll();
+                    }, 500);
+                }
+            } catch (error) {
+                console.error('Error during initialization:', error);
+                hideOverlay();
+            }
+        });
+
+        // Load content dynamically
+        async function loadContent() {
+            try {
+                const container = document.getElementById('content-container');
+                console.log("Starting to load content...");
+                
+                // Load sections in order
+                const sections = [
+                    'partials/toc.html',
+                    'partials/section_01_introduction.html',
+                    'partials/section_02_header_field_changes.html',
+                    'partials/section_03_blockchain_state_tracking.html',
+                    'partials/section_04_static_block_validation.html',
+                    'partials/section_05_transaction_static_checks.html',
+                    'partials/section_06_state_transition_changes.html',
+                    'partials/section_07_transaction_execution_changes.html',
+                    'partials/references.html'
+                ];
+                
+                // Load sections one by one
+                for (let i = 0; i < sections.length; i++) {
+                    const section = sections[i];
+                    try {
+                        console.log(`Loading section: ${section}`);
+                        const response = await fetch(section);
+                        if (response.ok) {
+                            const html = await response.text();
+                            container.innerHTML += html;
+                            
+                            // Run Prism highlighter after each section
+                            if (window.Prism) {
+                                Prism.highlightAll();
+                            }
+                        }
+                    } catch (error) {
+                        console.error(`Failed to load section: ${section}`, error);
+                    }
+                }
+            } catch (error) {
+                console.error("Error in content loading process:", error);
+                hideOverlay();
+            }
+        }
+    </script>
+</body>
+</html> 

@@ -1,0 +1,134 @@
+<h2 id="transaction-static-checks">5. Transaction Static Checks</h2>
+<p>After the basic header validation, the <code>validate_block</code> function performs static checks on each transaction in the block. These checks focus on state-independent validations.</p>
+
+
+
+<h4>Transaction Trie Construction</h4>
+<p>Still in the <code>validate_block</code> function, we decode the transactions, statically validate them and build the transactions trie:</p>
+
+<div class="code-block">
+    <div class="code-header">
+        <span>Transaction Trie Construction (prague/fork.py)</span>
+        <div class="toggle-btn" onclick="return toggleCodeBlock(this, event)" style="cursor:pointer">−</div>
+    </div>
+    <div class="code-content">
+        <pre><code class="language-python">def validate_block(...):
+    # Static Block Validation checks
+    # (discussed in the previous section)
+    ...
+    for i, tx in enumerate(map(decode_transaction, block.transactions)):
+        sender_address = check_transaction_static(
+            tx,
+            chain.chain_id,
+            block.header.base_fee_per_gas,
+            block.header.excess_blob_gas,
+        )
+        sender_addresses.append(sender_address)
+        _, inclusion_gas = calculate_inclusion_gas_cost(tx)
+        blob_gas_used = calculate_total_blob_gas(tx)
+        
+        total_inclusion_gas += inclusion_gas
+        total_blob_gas_used += blob_gas_used
+
+        trie_set(
+            transactions_trie, rlp.encode(Uint(i)), encode_transaction(tx)
+        )
+
+    if total_inclusion_gas > block.header.gas_limit:
+        raise InvalidBlock
+    if total_blob_gas_used > MAX_BLOB_GAS_PER_BLOCK:
+        raise InvalidBlock
+    ...
+</code></pre>
+    </div>
+</div>
+
+<div class="implementation-note">
+    <div class="implementation-note-title">Implementation Note</div>
+    <div class="implementation-note-content">
+        <p>The <code>trie_set</code> function is a helper that sets a value in a trie. It's used here to store the encoded transaction in the transactions trie.</p>
+        <p>We go though all transactions, statically validate them (see next section) and keep track of the total inclusion gas and blob gas used.</p>
+    </div>
+</div> 
+
+<h4>Transaction Static Validation</h4>
+<p>For each transaction in the block, the function calls <code>check_transaction_static</code>:</p>
+
+<div class="code-block">
+    <div class="code-header">
+        <span>Transaction Static Validation (prague/fork.py)</span>
+        <div class="toggle-btn" onclick="return toggleCodeBlock(this, event)" style="cursor:pointer">−</div>
+    </div>
+    <div class="code-content">
+        <pre><code class="language-python">
+def check_transaction_static(
+    tx: Transaction,
+    chain_id: U64,
+    base_fee_per_gas: U64,
+    excess_blob_gas: U64,
+) -> Address:
+
+    if not validate_transaction(tx):
+        raise InvalidBlock
+
+    if isinstance(tx, (FeeMarketTransaction, BlobTransaction, SetCodeTransaction)):
+        if tx.max_fee_per_gas < tx.max_priority_fee_per_gas:
+            raise InvalidBlock
+        if tx.max_fee_per_gas < base_fee_per_gas:
+            raise InvalidBlock
+    else:
+        if tx.gas_price < base_fee_per_gas:
+            raise InvalidBlock
+
+    if isinstance(tx, BlobTransaction):
+        if not isinstance(tx.to, Address):
+            raise InvalidBlock
+        if len(tx.blob_versioned_hashes) == 0:
+            raise InvalidBlock
+        for blob_versioned_hash in tx.blob_versioned_hashes:
+            if blob_versioned_hash[0:1] != VERSIONED_HASH_VERSION_KZG:
+                raise InvalidBlock
+        blob_gas_price = calculate_blob_gas_price(excess_blob_gas)
+        if Uint(tx.max_fee_per_blob_gas) < blob_gas_price:
+            raise InvalidBlock
+        
+    if isinstance(tx, SetCodeTransaction):
+        if not any(tx.authorizations):
+            raise InvalidBlock       
+            
+    return recover_sender(chain_id, tx)</code></pre>
+    </div>
+</div>
+
+<p>This helper function performs:</p>
+<ol>
+    <li><strong>Basic format validation</strong>: Ensures the transaction has correct encoding and no malformed fields.</li>
+    <li><strong>Fee field checks</strong>: For EIP-1559 transactions, verifies <code>max_fee_per_gas >= max_priority_fee_per_gas</code> and <code>max_fee_per_gas >= base_fee_per_gas</code>. For legacy transactions, checks that <code>gas_price >= base_fee_per_gas</code>.</li>
+    <li><strong>Specialized transaction checks</strong>: For blob transactions or other specific transaction types, performs type-specific validations.</li>
+    <li><strong>Sender recovery</strong>: Recovers the sender's address from the transaction signature.</li>
+</ol>
+
+<p>The code:</p>
+<ol>
+    <li>Calculates total inclusion gas (minimum gas consumed to include the transaction)</li>
+    <li>Verifies this doesn't exceed the block gas limit</li>
+    <li>Checks total blob gas against protocol maximum</li>
+    <li>Computes total inclusion cost in ETH</li>
+    <li>Ensures the coinbase has enough balance to cover this cost</li>
+</ol>
+
+<div class="rationale">
+    <div class="rationale-title">Rationale for Static Transaction Checks</div>
+    <div class="rationale-content">
+        <p>Separating <code>check_transaction_static</code> is crucial. These checks don't depend on the current state (except the known base fee and excess blob gas). By performing them upfront, we ensure that by the time we reach execution, all transactions have correct signatures, meet base fee requirements, and won't violate basic protocol rules.</p>
+        <p>The coinbase balance check is an important new rule that requires the block proposer or builder to have enough ETH to front the cost of including all transactions. This prevents a scenario where a proposer includes many transactions that end up skipped and cannot actually pay the fees they owe the network.</p>
+    </div>
+</div>
+
+<div class="implementation-note">
+    <div class="implementation-note-title">Implementation Note</div>
+    <div class="implementation-note-content">
+        <p>Inclusion gas is essentially the <strong>minimum gas that will be consumed simply by including the transaction</strong> (the fixed 21,000 plus costs for calldata and blobs). It represents the base data cost of the transaction, ignoring any execution logic.</p>
+        <p>During validation, <code>sender_addresses</code> are collected and will be passed to <code>apply_body</code> for execution. This prevents having to recover signatures a second time during execution.</p>
+    </div>
+</div> 

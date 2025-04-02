@@ -1,0 +1,36 @@
+<h2 id="static-block-validation">4. Static Block Validation</h2>
+<p>A new function <a href="https://github.com/ethereum/execution-specs/blob/ae2c77989cb83e5d5e5eb1f51d9da840a337d5b0/src/ethereum/prague/fork.py#L480"><code>validate_block(chain, block) -> List[Address]</code></a> centralizes <strong>pre-execution validation</strong>. This function performs all checks that do not require executing transactions, returning the list of sender addresses for later use during execution.</p>
+
+<h4>Function Overview</h4>
+<div class="code-block">
+    <div class="code-header">
+        <span>Static Block Validation (prague/fork.py)</span>
+        <div class="toggle-btn" onclick="return toggleCodeBlock(this, event)" style="cursor:pointer">−</div>
+    </div>
+    <div class="code-content">
+        <pre><code class="language-python">def validate_block(chain, block) -> List[Address]:
+    # Header basic checks
+    parent_header = chain.blocks[-1].header
+    validate_header(block.header, parent_header)
+    
+    # Deferred parent outputs check
+    if block.header.parent_gas_used != chain.last_block_gas_used:
+        raise InvalidBlock
+    if block.header.parent_receipt_root != chain.last_receipt_root:
+        raise InvalidBlock
+    if block.header.parent_bloom != chain.last_block_logs_bloom:
+        raise InvalidBlock
+    if block.header.parent_requests_hash != chain.last_requests_hash:
+        raise InvalidBlock
+    if block.header.pre_state_root != state_root(chain.state):
+        raise InvalidBlock
+
+    ...
+        
+    # Transaction static checks and sender recovery
+    # (discussed in the next section)
+    
+    return sender_addresses</code></pre>
+    </div>
+</div>
+

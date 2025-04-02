@@ -1,0 +1,68 @@
+<h2 id="introduction">1. Introduction and Overview</h2>
+<p>Delayed Execution is a proposed update to Ethereum's block processing mechanism that decouples block validation from immediate transaction execution. This design allows attesters to determine the correct head block with minimal initial work, deferring the actual execution of transactions until after attestation.</p>
+
+<h3>Key Benefits</h3>
+<ul>
+    <li><strong>Faster Block Validation:</strong> Blocks can be validated and attested without performing full execution</li>
+    <li><strong>Relieve Critical Path:</strong> Removes execution from the critical path for block validation</li>
+    <li><strong>Increased Resilience:</strong> Invalid transactions can be skipped rather than invalidating entire blocks</li>
+    <li><strong>Enhanced Throughput:</strong> Potential for significant gains in overall throughput</li>
+</ul>
+
+<h3>Concept Overview</h3>
+<p>In the current Ethereum protocol, each block links to its predecessor by including the parent hash of the block it builds on in its header. Additionally, every block includes a cryptographic commitment to the state resulting from all transactions in that block. This means validators must run every transaction immediately to verify the block's validity.</p>
+
+<div class="centered-image">
+    <img src="static/currently.png" alt="Current flow">
+  </div>
+
+<p>Delayed Execution challenges this by splitting block processing into two stages:</p>
+
+<ol>
+    <li><strong>Static Validation (Pre-Execution):</strong> Validators perform minimal checks using only the previous state.</li>
+    <li><strong>Post-Attestation Execution:</strong> The actual execution of transactions is delayed until after the block is initially validated and attested to.</li>
+</ol>
+
+<div class="code-block">
+    <div class="code-header">
+        <span>Current vs. Delayed Execution Workflow</span>
+        <div class="toggle-btn" onclick="return toggleCodeBlock(this, event)" style="cursor:pointer">−</div>
+    </div>
+    <div class="code-content">
+        <pre><code class="language-python">// Current Ethereum workflow
+receive block → validate header → execute all transactions → verify state root → attest
+
+// Delayed Execution workflow
+receive block → validate header → verify parent results → attest → execute transactions later</code></pre>
+    </div>
+</div>
+
+<div class="centered-image">
+    <img src="static/delayed.png" alt="Delayed flow">
+</div>
+
+<div class="rationale">
+    <div class="rationale-title">Rationale for Header Changes</div>
+    <div class="rationale-content">
+        <p>By referencing parent results rather than current block results, the header no longer immediately commits to outcomes of its own transactions. This allows "static" block validation using only already-known data (the parent state and outputs). A validator can verify the header quickly and postpone running transactions.</p>
+        <p>The coinbase's signature serves as a commitment to pay the upfront inclusion costs for the block. By signing the header, the proposer explicitly accepts responsibility for the fees of any transactions that end up skipped. Without this mechanism, a malicious builder could set someone else's address as coinbase to charge them, or include costly transactions without consent.</p>
+    </div>
+</div>
+
+
+<h3>Key Components</h3>
+<p>Delayed Execution introduces:</p>
+<ol>
+    <li>Modified block header fields that refer to parent rather than current block data</li>
+    <li>New block signature requirements for coinbase authorization</li>
+    <li>Skipped transaction mechanism where invalid transactions are bypassed rather than failing the block</li>
+    <li>Upfront fee payment by the coinbase (block proposer) to cover inclusion costs</li>
+</ol>
+
+<div class="implementation-note">
+    <div class="implementation-note-title">Implementation Note</div>
+    <div class="implementation-note-content">
+        This implementation follows the design outlined in <a href="https://eips.ethereum.org/EIPS/eip-7886">EIP-7886: Delayed Execution</a> and the Ethereum research post <a href="https://ethresear.ch/t/delayed-execution-and-skipped-transactions/21677">"Delayed Execution And Skipped Transactions"</a>.
+    </div>
+</div> 
+
