@@ -1,0 +1,11 @@
+title: Delayed Execution Docs
+description: Documentation for delayed execution
+baseurl: "/delayed-execution-docs"
+url: "https://nerolation.github.io"
+github_username: nerolation
+
+# Build settings
+markdown: kramdown
+remote_theme: pages-themes/cayman@v0.2.0
+plugins:
+  - jekyll-remote-theme 
