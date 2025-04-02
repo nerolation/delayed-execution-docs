@@ -72,8 +72,6 @@
 <div class="implementation-note">
     <div class="implementation-note-title">Implementation Note</div>
     <div class="implementation-note-content">
-        <p>The <code>calldata_floor_gas_cost</code> is a new concept in Prague that ensures transactions pay at least the cost of their calldata, regardless of how little gas they actually use during execution. This provides a minimum cost for network resources even if execution is optimized.</p>
-        <p>The calculation <code>total_gas_used = max(total_gas_used, calldata_floor_gas_cost)</code> ensures transactions can't optimize away their contribution to network costs by having highly efficient execution.</p>
         <p>The inclusion cost refund calculation <code>calculate_inclusion_gas_cost(tx)[1] * env.base_fee_per_gas + blob_gas_fee</code> covers both the base fee portion of inclusion gas and any blob fees. For executed (non-skipped) transactions, this is returned to the coinbase rather than being burned. Refunding inclusion costs only for executed transactions ensures block builders have a clear incentive to not include skipped transactions in their blocks.</p>
     </div>
 </div>
@@ -81,6 +79,6 @@
 <div class="edge-implications">
     <div class="edge-implications-title">Incompatibility Implications</div>
     <div class="edge-implications-content">
-        <p>Delayed execution is incompatible with proposals that require immediate execution for additional EL payload validation that go beyond the validity checks of individual transactions. On example is FOCIL, the inclusion list EIP, which requires ILs to be verified after executing every transaction in the block. There are <a href="https://hackmd.io/@Nerolation/BJFix4E2kx">solutions to this problem</a> though.</p>
+        <p>Delayed execution is incompatible with proposals that require immediate execution for additional EL payload validation that go beyond the validity checks of individual transactions. On example is the current design of FOCIL, which requires ILs to be validated after executing all transaction in the block. There are <a href="https://hackmd.io/@Nerolation/BJFix4E2kx">solutions to this problem</a> though.</p>
     </div>
 </div>
