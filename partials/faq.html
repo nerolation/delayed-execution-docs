@@ -1,0 +1,111 @@
+<!-- FAQ Section -->
+<div id="faq">
+    <h2>Frequently Asked Questions</h2>
+    
+    <div class="faq-item">
+        <div class="faq-question">
+            <h3>What is delayed execution?</h3>
+        </div>
+        <div class="faq-answer">
+            <p>Delayed execution (EIP-7886) is a proposed update to Ethereum's block processing mechanism that decouples block validation from immediate transaction execution. It splits block processing into two phases: static validation (pre-execution) and post-attestation execution. This allows validators to determine the correct head block by performing minimal checks using only the previous state, deferring the actual execution of transactions until after attestation.</p>
+        </div>
+    </div>
+    
+    <div class="faq-item">
+        <div class="faq-question">
+            <h3>What are the key benefits of delayed execution?</h3>
+        </div>
+        <div class="faq-answer">
+            <p>Delayed execution offers several significant benefits:</p>
+            <ul>
+                <li><strong>Faster Block Validation:</strong> Blocks can be validated and attested without performing full execution</li>
+                <li><strong>Relieve Critical Path:</strong> Removes execution from the critical path for block validation</li>
+                <li><strong>Increased Resilience:</strong> Invalid transactions can be skipped rather than invalidating entire blocks</li>
+                <li><strong>Enhanced Throughput:</strong> Potential for significant gains in overall network throughput</li>
+            </ul>
+        </div>
+    </div>
+    
+    <div class="faq-item">
+        <div class="faq-question">
+            <h3>How does delayed execution differ from the current Ethereum workflow?</h3>
+        </div>
+        <div class="faq-answer">
+            <p>The key differences between current and delayed execution workflows are:</p>
+            <ul>
+                <li><strong>Current workflow:</strong> receive block → validate header → execute all transactions → verify state root → attest</li>
+                <li><strong>Delayed execution:</strong> receive block → validate header → verify parent results → attest → execute transactions later</li>
+            </ul>
+            <p>In the current Ethereum protocol, blocks include a cryptographic commitment to the state resulting from all transactions, requiring validators to run every transaction immediately to verify the block's validity. With delayed execution, the block header no longer immediately commits to outcomes of its own transactions, allowing "static" validation using only already-known data (the parent state and outputs).</p>
+        </div>
+    </div>
+    
+    <div class="faq-item">
+        <div class="faq-question">
+            <h3>What changes are made to the block header for delayed execution?</h3>
+        </div>
+        <div class="faq-answer">
+            <p>Several block header fields are renamed to refer to the <em>parent</em> block's results instead of the current block's:</p>
+            <ul>
+                <li><code>state_root</code> → <code>pre_state_root</code>: Now stores the state root <em>before</em> executing this block</li>
+                <li><code>receipt_root</code> → <code>parent_receipt_root</code>: Points to the receipts trie root of the parent block</li>
+                <li><code>bloom</code> → <code>parent_bloom</code>: Now the logs bloom filter of the parent block</li>
+                <li><code>gas_used</code> → <code>parent_gas_used</code>: Now the total gas used in the parent block</li>
+                <li><code>requests_hash</code> → <code>parent_requests_hash</code>: Commitment to Execution Layer requests from the parent block</li>
+            </ul>
+            <p>Additionally, three new signature fields are added: <code>y_parity</code>, <code>r</code>, and <code>s</code>, which store an ECDSA signature over the block header provided by the coinbase (block proposer).</p>
+        </div>
+    </div>
+    
+    <div class="faq-item">
+        <div class="faq-question">
+            <h3>What are "skipped transactions" in the context of delayed execution?</h3>
+        </div>
+        <div class="faq-answer">
+            <p>Skipped transactions are a new mechanism that allows certain invalid transactions to be bypassed rather than causing the entire block to fail. A transaction is considered skipped if any of these conditions are met:</p>
+            <ul>
+                <li>The transaction's gas limit exceeds the available gas</li>
+                <li>The sender has insufficient balance to cover the max gas fee and value</li>
+                <li>The sender's nonce doesn't match the transaction's nonce</li>
+                <li>The sender is not an externally owned account (EOA)</li>
+            </ul>
+            <p>Skipped transactions still incur inclusion costs (charged to the block proposer or builder), but they don't execute and don't change state.</p>
+            <p>Skipped transactions produce an empty receipt such that the number of transactions and receipts are still consistent.</p>
+        </div>
+    </div>
+    
+    <div class="faq-item">
+        <div class="faq-question">
+            <h3>How are fees handled in delayed execution?</h3>
+        </div>
+        <div class="faq-answer">
+            <p>Delayed execution introduces a new fee mechanism:</p>
+            <ol>
+                <li><strong>Prepayment of Inclusion Cost:</strong> Before any execution, the block proposer (coinbase) pays for the total inclusion cost of all transactions in the block (21,000 gas plus calldata & blob gas costs for each transaction).</li>
+                <li><strong>Refunds for Executed Transactions:</strong> For transactions that execute successfully, the inclusion cost is refunded to the coinbase.</li>
+                <li><strong>No Refund for Skipped Transactions:</strong> If a transaction is skipped, the inclusion cost is not refunded, creating a disincentive for proposers to include transactions that will be skipped.</li>
+                <li><strong>Priority Fees:</strong> Priority fees for successfully executed transactions are paid to the coinbase as in the current system.</li>
+            </ol>
+            <p>This system ensures that even if transactions are skipped, network resources used for data availability are properly compensated.</p>
+        </div>
+    </div>
+    
+    <div class="faq-item">
+        <div class="faq-question">
+            <h3>Why is the coinbase signature required in delayed execution?</h3>
+        </div>
+        <div class="faq-answer">
+            <p>The coinbase signature serves as a commitment by the block proposer or builder to pay the upfront inclusion costs for the block. Since the coinbase address is the one whose balance will be charged for inclusion costs, requiring a signature provides proof that the block proposer or builder agreed to this charge.</p>
+            <p>Without this mechanism, a malicious builder could set someone else's address as coinbase to charge them for inclusion costs, or include costly transactions without consent. The signature verification protects the coinbase (builder) from these kinds of attacks.</p>
+        </div>
+    </div>
+    
+    <div class="faq-item">
+        <div class="faq-question">
+            <h3>What happens if a block proposer doesn't have enough ETH to cover inclusion costs?</h3>
+        </div>
+        <div class="faq-answer">
+            <p>If a block proposer doesn't have enough ETH to cover the inclusion costs for all transactions in the block, the block will be considered invalid during the static validation phase. This is a new check introduced in delayed execution that ensures block proposers have sufficient balance to pay for the inclusion costs upfront. Effictively, local building will require a small amount of ETH to be reserved at the coinbase address. Validators using MEV-Boost will not be affected by this, since it's the builders that pay for the inclusion costs.</p>
+        </div>
+    </div>
+</div> 
