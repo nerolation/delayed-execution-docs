@@ -1,5 +1,5 @@
 <h2 id="introduction">1. Introduction and Overview</h2>
-<p>Delayed Execution is a proposed update to Ethereum's block processing mechanism that decouples block validation from immediate transaction execution. This design allows attesters to determine the correct head block with minimal initial work, deferring the actual execution of transactions until after attestation.</p>
+<p><a href="https://eips.ethereum.org/EIPS/eip-7886"></a>Delayed Execution</a> is a proposed update to Ethereum's block processing mechanism that decouples block validation from immediate transaction execution. This design allows attesters to determine the correct head block with minimal initial work, deferring the actual execution of transactions until after attestation.</p>
 
 <h3>Key Benefits</h3>
 <ul>
@@ -45,7 +45,7 @@ receive block → validate header → verify parent results → attest → execu
     <div class="rationale-title">Rationale for Header Changes</div>
     <div class="rationale-content">
         <p>By referencing parent results rather than current block results, the header no longer immediately commits to outcomes of its own transactions. This allows "static" block validation using only already-known data (the parent state and outputs). A validator can verify the header quickly and postpone running transactions.</p>
-        <p>The coinbase's signature serves as a commitment to pay the upfront inclusion costs for the block. By signing the header, the proposer explicitly accepts responsibility for the fees of any transactions that end up skipped. Without this mechanism, a malicious builder could set someone else's address as coinbase to charge them, or include costly transactions without consent.</p>
+        <p>The coinbase's signature serves as a commitment to pay the upfront inclusion costs for the block. By signing the header, the proposer explicitly accepts responsibility for the fees of any transactions that end up skipped. Without this mechanism, a malicious builder could set someone else's address as coinbase to charge them, and then include costly transactions that end up skipped.</p>
     </div>
 </div>
 
@@ -55,8 +55,8 @@ receive block → validate header → verify parent results → attest → execu
 <ol>
     <li>Modified block header fields that refer to parent rather than current block data</li>
     <li>New block signature requirements for coinbase authorization</li>
-    <li>Skipped transaction mechanism where invalid transactions are bypassed rather than failing the block</li>
-    <li>Upfront fee payment by the coinbase (block proposer) to cover inclusion costs</li>
+    <li>Skipped transaction mechanism where invalid transactions are not executed rather than failing the block</li>
+    <li>Upfront fee payment by the coinbase (block proposer or builder) to cover inclusion costs</li>
 </ol>
 
 <div class="implementation-note">

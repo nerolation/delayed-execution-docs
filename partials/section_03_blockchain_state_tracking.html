@@ -59,7 +59,6 @@ def state_transition(chain: BlockChain, block: Block) -> None:
 <div class="edge-implications">
     <div class="edge-implications-title">Edge Cases</div>
     <div class="edge-implications-content">
-        <p>On fork transition or genesis, these <code>last_*</code> values must be initialized appropriately. For example, genesis parent outputs are known constants. When transitioning to this new fork, the code likely needs to initialize <code>last_block_gas_used</code>, etc., from the last block of the old fork so that the first Prague block's <code>pre_state_root</code> and <code>parent_*</code> fields can be checked.</p>
-        <p>A mismatch between a new block's <code>parent_*</code> fields and the chain's recorded <code>last_*</code> values will immediately flag the block as invalid, catching any discrepancy in the deferred commitments.</p>
+        <p>On fork transition or genesis, these <code>last_*</code> values must be initialized appropriately. When transitioning to this new fork, the code likely needs to initialize <code>last_block_gas_used</code>, etc., from the last block of the old fork so that the first block's <code>pre_state_root</code> and <code>parent_*</code> fields can be checked.</p>
     </div>
 </div> 
