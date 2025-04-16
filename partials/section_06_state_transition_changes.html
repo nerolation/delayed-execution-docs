@@ -69,7 +69,7 @@
 <ol>
     <li><strong>Prepayment of Inclusion Cost</strong>: Before any execution, the function deducts the total inclusion cost from the coinbase account. This represents the minimum cost for including transactions (21,000 gas plus calldata & blob gas costs for each transaction).</li>
     <li><strong>Skipped Transactions</strong>: Transactions can now be skipped without being executed. This allows the block proposer to include transactions that will not be executed, ensuring they are still paid for inclusion costs. How skips are determined is discussed in the next section.</li>
-    <li><strong>Disincentivicing Skipping</strong>: Since the coinbase is charged for inclusion costs, there is a disincentive to cause or include skip transactions because the inclusion costs are only refunded for transactions that are executed. Transactions that are skipped are the consuming inclusion gas cost.</li>
+    <li><strong>Disincentivicing Skipping</strong>: Since the coinbase is charged for inclusion costs, there is a disincentive to cause or include skip transactions because the inclusion costs are only refunded for transactions that are executed. Transactions that are skipped are still consuming gas for inclusion.</li>
 </ol>
 
 <div class="code-block">
@@ -130,14 +130,14 @@ def check_transaction(
         <p>Allowing transactions to be skipped solves several problems:</p>
         <ol>
             <li><strong>Transactions Invalidating the Block</strong>: By introducing skip transactions, transactions can no longer invalidate the entire block.</li>
-            <li><strong>Prechrging Inclusion Costs</strong>: The block proposer prepays for all inclusion costs, ensuring senders are not losing any ETH even if later transactions are skipped. This solves the problem of free DA.</li>
+            <li><strong>Prechrging Inclusion Costs</strong>: The block proposer prepays for all inclusion costs, ensuring senders are not losing any ETH even if later transactions are skipped. This also solves the problem of free DA.</li>
         </ol>
     </div>
 </div>
 
 <div class="edge-implications">
-    <div class="edge-implications-title">Edge Implications</div>
+    <div class="edge-implications-title">Implications</div>
     <div class="edge-implications-content">
-        <p>Block proposers need sufficient ETH to cover inclusion costs upfront.</p>
+        <p>Block proposers need sufficient ETH to cover inclusion costs upfront. Under normal operations, this should not be a huge burden for (local) builders. With the basefee at 100 GWEI (which is very high), the inclusion cost for a transaction consuming the total available gas is the gas limit * 100 GWEI = 3.6 ETH. However, (local) builders SHALL NOT try to build blocks with inclusion costs exceeding their ETH balance at the coinbase address.</p>
     </div>
 </div>
