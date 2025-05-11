@@ -104,10 +104,11 @@
     
     # Start execution
     # ...</code></pre>
+</div>
 
 <div class="code-block">
     <div class="code-header">
-        <span>Pree Charge Maximum Fee</span>
+        <span>Pre Charge Maximum Fee</span>
         <div class="toggle-btn" onclick="return toggleCodeBlock(this, event)" style="cursor:pointer">−</div>
     </div>
     <div class="code-content">
@@ -119,8 +120,8 @@
             sender = recover_sender(block_env.chain_id, tx)
             sender_account = get_account(block_env.state, sender)
             set_account_balance(block_env.state, sender, sender_account.balance - U256(max_gas_fee))</code></pre>
-
-
+    </div>
+</div>
 <div class="implementation-note">
     <div class="implementation-note-title">Deduct Max Fee</div>
     <div class="implementation-note-content">
