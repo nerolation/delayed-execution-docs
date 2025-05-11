@@ -1,143 +1,45 @@
 <h2 id="state-transition-changes">6. State Transition Changes</h2>
-<p>The <a href="https://github.com/ethereum/execution-specs/blob/ae2c77989cb83e5d5e5eb1f51d9da840a337d5b0/src/ethereum/prague/fork.py#L696"><code>apply_body</code></a> function, responsible for executing transactions and updating state, undergoes significant changes to implement delayed execution.</p>
+<p>After a block passes static validation but before pre-charging the sender's balance, execution proceeds with a block-level state snapshot mechanism to handle execution validation.</p>
 
-<h4>Modified State Transition Function</h4>
-<p>The function signature changes to accept the pre-validated sender addresses:</p>
-
-<div class="code-block">
-    <div class="code-header">
-        <span>State Transition Function (prague/fork.py)</span>
-        <div class="toggle-btn" onclick="return toggleCodeBlock(this, event)" style="cursor:pointer">−</div>
-    </div>
-    <div class="code-content">
-        <pre><code class="language-python">def apply_body(...) -> ApplyBodyOutput:  
-    ...
-    decoded_transactions = map(decode_transaction, transactions)
-    total_inclusion_gas = sum(calculate_inclusion_gas_cost(tx)[1] for tx in decoded_transactions)
-    total_blob_gas_used = sum(calculate_total_blob_gas(tx) for tx in decoded_transactions)
-    inclusion_cost = (
-        total_inclusion_gas * base_fee_per_gas
-        + total_blob_gas_used * blob_gas_price
-    )
-    coinbase_account = get_account(state, coinbase)
-    coinbase_balance_after_inclusion_cost = (
-        Uint(coinbase_account.balance) - inclusion_cost
-    )
-    # Charge coinbase for inclusion costs
-    set_account_balance(
-        env.state,
-        env.coinbase,
-        U256(coinbase_balance_after_inclusion_cost),
-    )
-    gas_available = block_gas_limit - total_inclusion_gas
-    ...
-    for i, tx in enumerate(decoded_transactions):
-        sender_address = sender_addresses[i]
-        # Calculate the inclusion gas cost for the transaction
-        inclusion_gas = calculate_inclusion_gas_cost(tx)
-        # Add the inclusion gas cost to the available gas
-        # This is the gas that we charge the coinbase for. We now free it up for the transaction to consume.
-        gas_available += inclusion_gas
-        # Check if the transaction should be skipped
-        (
-            is_transaction_skipped,
-            effective_gas_price,
-            blob_versioned_hashes,
-        ) = check_transaction(
-            state,
-            tx,
-            sender_address,
-            gas_available,
-        )
-        # If the transaction should be skipped, subtract the inclusion gas cost from the available gas
-        if is_transaction_skipped:
-            gas_available -= inclusion_gas
-        else:
-            # If the transaction should be executed, create a new environment for it
-            env = vm.Environment(...)
-            # Process the transaction
-            gas_used, logs, error = process_transaction(env, tx)
-            # Subtract the actual gas used from the available gas
-            gas_available -= gas_used
-            ...
-    ...
-    return ApplyBodyOutput(...)</code></pre>
-    </div>
-</div>
-
-<h4>Key Changes in <code>apply_body</code></h4>
-<ol>
-    <li><strong>Prepayment of Inclusion Cost</strong>: Before any execution, the function deducts the total inclusion cost from the coinbase account. This represents the minimum cost for including transactions (21,000 gas plus calldata & blob gas costs for each transaction).</li>
-    <li><strong>Skipped Transactions</strong>: Transactions can now be skipped without being executed. This allows the block proposer to include transactions that will not be executed, ensuring they are still paid for inclusion costs. How skips are determined is discussed in the next section.</li>
-    <li><strong>Disincentivicing Skipping</strong>: Since the coinbase is charged for inclusion costs, there is a disincentive to cause or include skip transactions because the inclusion costs are only refunded for transactions that are executed. Transactions that are skipped are still consuming gas for inclusion.</li>
-</ol>
+<h4>Block Execution with State Snapshots</h4>
+<p>The execution process uses block-level state snapshots to enable execution rollback if necessary:</p>
 
 <div class="code-block">
     <div class="code-header">
-        <span>Transaction Execution (prague/fork.py)</span>
+        <span>Block Execution with Snapshots</span>
         <div class="toggle-btn" onclick="return toggleCodeBlock(this, event)" style="cursor:pointer">−</div>
     </div>
     <div class="code-content">
-        <pre><code class="language-python">
-def check_transaction(
-    state: State,
-    tx: Transaction,
-    sender_address: Address,
-    gas_available: Uint,
-    base_fee_per_gas: Uint,
-) -> Tuple[bool, Tuple[VersionedHash, ...]]:
+        <pre><code class="language-python">def process_transactions(...) -> None:
+        take_block_level_snapshot(block_env.state)
     
-    if isinstance(tx, (FeeMarketTransaction, BlobTransaction, SetCodeTransaction)):
-        priority_fee_per_gas = min(
-            tx.max_priority_fee_per_gas,
-            tx.max_fee_per_gas - base_fee_per_gas,
-        )
-        effective_gas_price = priority_fee_per_gas + base_fee_per_gas
-        max_gas_fee = tx.gas * tx.max_fee_per_gas
-    else:
-        effective_gas_price = tx.gas_price
-        max_gas_fee = tx.gas * tx.gas_price
+        decoded_transactions = [decode_transaction(tx) for tx in transactions]
 
-    if isinstance(tx, BlobTransaction):
-        max_gas_fee += calculate_total_blob_gas(tx) * Uint(
-            tx.max_fee_per_blob_gas
-        )
-        blob_versioned_hashes = tx.blob_versioned_hashes
-    else:
-        blob_versioned_hashes = ()
-
-    sender_account = get_account(state, sender_address)
-    is_sender_eoa = (
-        sender_account.code == bytearray() 
-        or is_valid_delegation(sender_account.code)
-    )
-    is_transaction_skipped = (
-        tx.gas > gas_available
-        or Uint(sender_account.balance) < max_gas_fee + Uint(tx.value)
-        or sender_account.nonce != tx.nonce
-        or not is_sender_eoa
-    )
-
-    return is_transaction_skipped, effective_gas_price, blob_versioned_hashes
+        # Charge senders the maximum fees upfront
+        # ...
         </code></pre>
     </div>
 </div>
 
+<h4>Key Execution Steps</h4>
+<ol>
+    <li><strong>Block-Level Snapshot</strong>: A snapshot of the entire state is taken before any transaction execution begins</li>
+    <li><strong>Pre-Charging Senders</strong>: Sender account balances are updated based on pre-validation results</li>
+    <li><strong>Transaction Execution</strong>: All transactions are processed following existing rules</li>
+    <li><strong>Gas Validation</strong>: After execution, the actual gas used is verified against the declared value in the block header</li>
+    <li><strong>State Management</strong>: If a gas mismatch is detected, execution is rolled back using the block-level snapshot</li>
+    <li><strong>Output Calculation</strong>: Execution outputs are calculated for verification in subsequent blocks</li>
+</ol>
 
 <div class="rationale">
-    <div class="rationale-title">Rationale for Skipped Transactions</div>
+    <div class="rationale-title">Rationale for State Snapshot Architecture</div>
     <div class="rationale-content">
-        <p>Allowing transactions to be skipped solves several problems:</p>
+        <p>The block-level snapshot mechanism provides an efficient way to revert execution when necessary. This approach allows clients to roll back the entire block's execution if the actual gas used does not match the declared gas in the header, without invalidating the block structure itself.</p>
+        <p>This provides two key benefits:
         <ol>
-            <li><strong>Transactions Invalidating the Block</strong>: By introducing skip transactions, transactions can no longer invalidate the entire block.</li>
-            <li><strong>Prechrging Inclusion Costs</strong>: The block proposer prepays for all inclusion costs, ensuring senders are not losing any ETH even if later transactions are skipped. This also solves the problem of free DA.</li>
+            <li>It allows validators to attest to blocks before execution is complete</li>
+            <li>It ensures execution is eventually performed correctly, with economic penalties for incorrect gas declarations</li>
         </ol>
-    </div>
-</div>
-
-<div class="edge-implications">
-    <div class="edge-implications-title">Implications</div>
-    <div class="edge-implications-content">
-        <p>Block proposers need sufficient ETH to cover inclusion costs upfront. Under normal operations, this should not be a huge burden for (local) builders. With the basefee at 100 GWEI (which is very high), the inclusion cost for a transaction consuming the total available gas is the gas limit * 100 GWEI = 3.6 ETH. However, (local) builders SHALL NOT try to build blocks with inclusion costs exceeding their ETH balance at the coinbase address.</p>
+        </p>
     </div>
 </div>

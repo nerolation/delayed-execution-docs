@@ -1,26 +1,26 @@
 <h2 id="introduction">1. Introduction and Overview</h2>
-<p><a href="https://eips.ethereum.org/EIPS/eip-7886"></a>Delayed Execution</a> is a proposed update to Ethereum's block processing mechanism that decouples block validation from immediate transaction execution. This design allows attesters to determine the correct head block with minimal initial work, deferring the actual execution of transactions until after attestation.</p>
+<p><a href="https://eips.ethereum.org/EIPS/eip-7886">Delayed Execution</a> is a proposed update to Ethereum's block processing mechanism that separates block validation from execution. This design allows validators to attest to a block's validity without completing its execution.</p>
 
 <h3>Key Benefits</h3>
 <ul>
-    <li><strong>Faster Block Validation:</strong> Blocks can be validated and attested without performing full execution</li>
-    <li><strong>Relieve Critical Path:</strong> Removes execution from the critical path for block validation</li>
-    <li><strong>Increased Resilience:</strong> Invalid transactions can be skipped rather than invalidating entire blocks</li>
-    <li><strong>Enhanced Throughput:</strong> Potential for significant gains in overall throughput</li>
+    <li><strong>Asynchronous Block Validation:</strong> Blocks can be validated and attested without performing full execution</li>
+    <li><strong>Improved Network Throughput:</strong> Removes execution from critical path, potentially enabling higher block gas limits</li>
+    <li><strong>Increased Resilience:</strong> Transactions can be reverted rather than invalidating entire blocks</li>
+    <li><strong>Early Attestation:</strong> Allows attestation to happen earlier in the slot, independent of execution</li>
 </ul>
 
 <h3>Concept Overview</h3>
-<p>In the current Ethereum protocol, each block links to its predecessor by including the parent hash of the block it builds on in its header. Additionally, every block includes a cryptographic commitment to the state resulting from all transactions in that block. This means validators must run every transaction immediately to verify the block's validity.</p>
+<p>In the current Ethereum protocol, blocks must be fully executed before validators can attest to them. This requirement creates a bottleneck in the consensus process, as attestors must wait for execution results before committing their votes, limiting the network's throughput potential.</p>
 
 <div class="centered-image">
     <img src="static/currently.png" alt="Current flow">
   </div>
 
-<p>Delayed Execution challenges this by splitting block processing into two stages:</p>
+<p>Delayed Execution introduces a mechanism where execution payloads can be reverted rather than invalidating the entire block. This means execution is no longer an immediate requirement for validation:</p>
 
 <ol>
-    <li><strong>Static Validation (Pre-Execution):</strong> Validators perform minimal checks using only the previous state.</li>
-    <li><strong>Post-Attestation Execution:</strong> The actual execution of transactions is delayed until after the block is initially validated and attested to.</li>
+    <li><strong>Pre-Execution Validation:</strong> Validators perform minimal checks that only require the previous state, without executing transactions.</li>
+    <li><strong>Post-Attestation Execution:</strong> The actual execution of transactions happens after the block is validated and attested to.</li>
 </ol>
 
 <div class="code-block">
@@ -33,7 +33,7 @@
 receive block → validate header → execute all transactions → verify state root → attest
 
 // Delayed Execution workflow
-receive block → validate header → verify parent results → attest → execute transactions later</code></pre>
+receive block → validate header → verify parent results → pre-charge senders → attest → execute transactions later</code></pre>
     </div>
 </div>
 
@@ -44,25 +44,25 @@ receive block → validate header → verify parent results → attest → execu
 <div class="rationale">
     <div class="rationale-title">Rationale for Header Changes</div>
     <div class="rationale-content">
-        <p>By referencing parent results rather than current block results, the header no longer immediately commits to outcomes of its own transactions. This allows "static" block validation using only already-known data (the parent state and outputs). A validator can verify the header quickly and postpone running transactions.</p>
-        <p>The coinbase's signature serves as a commitment to pay the upfront inclusion costs for the block. By signing the header, the proposer explicitly accepts responsibility for the fees of any transactions that end up skipped. Without this mechanism, a malicious builder could set someone else's address as coinbase to charge them, and then include costly transactions that end up skipped.</p>
+        <p>By introducing a mechanism where execution payloads can be reverted rather than invalidating the entire block, execution is no longer an immediate requirement for validation. Instead, a block's validity can be determined based on its structural correctness and the upfront payment of transaction fees by senders.</p>
+        <p>This allows attestation to happen earlier in the slot, independent of execution, potentially enabling higher block gas limits and shorter slot times.</p>
     </div>
 </div>
-
 
 <h3>Key Components</h3>
 <p>Delayed Execution introduces:</p>
 <ol>
-    <li>Modified block header fields that refer to parent rather than current block data</li>
-    <li>New block signature requirements for coinbase authorization</li>
-    <li>Skipped transaction mechanism where invalid transactions are not executed rather than failing the block</li>
-    <li>Upfront fee payment by the coinbase (block proposer or builder) to cover inclusion costs</li>
+    <li>Modified block header fields that reference parent block execution results</li>
+    <li>Extended blockchain state tracking for verification of deferred execution outputs</li>
+    <li>Static block validation that doesn't require transaction execution</li>
+    <li>Pre-charging mechanism for maximum possible transaction fees</li>
+    <li>Block-level state snapshot architecture for efficient execution rollback when necessary</li>
 </ol>
 
 <div class="implementation-note">
     <div class="implementation-note-title">Implementation Note</div>
     <div class="implementation-note-content">
-        This document follows the design outlined in <a href="https://eips.ethereum.org/EIPS/eip-7886">EIP-7886: Delayed Execution</a> and the Ethereum research post <a href="https://ethresear.ch/t/delayed-execution-and-skipped-transactions/21677">"Delayed Execution And Skipped Transactions"</a>.
+        This document follows the design outlined in <a href="https://eips.ethereum.org/EIPS/eip-7886">EIP-7886: Delayed Execution</a>.
     </div>
 </div> 
 

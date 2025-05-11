@@ -1,20 +1,21 @@
 <h2 id="static-block-validation">4. Static Block Validation</h2>
-<p>A new function <a href="https://github.com/ethereum/execution-specs/blob/ae2c77989cb83e5d5e5eb1f51d9da840a337d5b0/src/ethereum/prague/fork.py#L480"><code>validate_block(chain, block) -> List[Address]</code></a> centralizes <strong>pre-execution validation</strong>. This function performs all checks that do not require executing transactions, returning the list of sender addresses for later use during execution.</p>
+<p>Static validation and pre-charging is performed separately from execution. In this phase, all checks that can be done without executing transactions are performed.</p>
 
-<h4>Function Overview</h4>
+<h4>Block Validation Overview</h4>
+<p>The <code>validate_block</code> function performs all pre-execution validation checks, ensuring a block can be attested to without executing its transactions:</p>
+
 <div class="code-block">
     <div class="code-header">
-        <span>Static Block Validation (prague/fork.py)</span>
+        <span>Static Block Validation</span>
         <div class="toggle-btn" onclick="return toggleCodeBlock(this, event)" style="cursor:pointer">−</div>
     </div>
     <div class="code-content">
-        <pre><code class="language-python">def validate_block(chain, block) -> List[Address]:
-    # Header basic checks
-    parent_header = chain.blocks[-1].header
-    validate_header(block.header, parent_header)
+        <pre><code class="language-python">def validate_block(chain: BlockChain, block: Block) -> None:
+    # Validate header against parent
+    validate_header(block.header, chain.blocks[-1].header)
     
-    # Deferred parent outputs check
-    if block.header.parent_gas_used != chain.last_block_gas_used:
+    # Validate deferred execution outputs from the parent
+    if block.header.parent_transactions_root != chain.last_transactions_root:
         raise InvalidBlock
     if block.header.parent_receipt_root != chain.last_receipt_root:
         raise InvalidBlock
@@ -24,13 +25,26 @@
         raise InvalidBlock
     if block.header.pre_state_root != state_root(chain.state):
         raise InvalidBlock
-
-    ...
-        
-    # Transaction static checks and sender recovery
-    # (discussed in the next section)
+    if block.header.parent_execution_reverted != chain.last_execution_reverted:
+        raise InvalidBlock
     
-    return sender_addresses</code></pre>
+    # Pre-validation checks for transactions and sender balances
+    # (Discussed in the next section)</code></pre>
+    </div>
+</div>
+
+<h4>Key Validation Steps</h4>
+<ol>
+    <li><strong>Header Validation</strong>: Validates the block header against its parent header</li>
+    <li><strong>Deferred Execution Outputs</strong>: Ensures parent execution outputs in the header match the chain's tracked values</li>
+    <li><strong>Pre-state Root</strong>: Verifies the pre-state root matches the current state root</li>
+    <li><strong>Transaction Validation</strong>: Statically validates all transactions without execution</li>
+</ol>
+
+<div class="implementation-note">
+    <div class="implementation-note-title">Implementation Note</div>
+    <div class="implementation-note-content">
+        <p>This validation step ensures the block can be attested to without executing its transactions, as all structural and balance constraints are checked. The function returns a dictionary of sender balances for use during the later execution phase.</p>
     </div>
 </div>
 

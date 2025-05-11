@@ -1,93 +1,72 @@
 <h2 id="header-field-changes">2. Header Field Changes</h2>
-<p>The block header format is significantly modified to enable delayed execution. This is implemented in <a href="https://github.com/ethereum/execution-specs/commit/ae2c77989cb83e5d5e5eb1f51d9da840a337d5b0"><code>prague/blocks.py</code></a>.</p>
+<p>The block header structure is extended to support delayed execution.</p>
 
-<h4>Fields Deferred to Parent</h4>
-<p>The block <a href="https://github.com/ethereum/execution-specs/blob/ae2c77989cb83e5d5e5eb1f51d9da840a337d5b0/src/ethereum/prague/blocks.py#L46"><code>Header</code></a> class has several fields renamed to refer to the <em>parent</em> block's results instead of the current block's:</p>
+<h4>Header Structure Changes</h4>
+<p>The block header structure includes new and renamed fields:</p>
 
 <div class="code-block">
     <div class="code-header">
-        <span>Field Changes (prague/blocks.py)</span>
+        <span>Header Structure</span>
         <div class="toggle-btn" onclick="return toggleCodeBlock(this, event)" style="cursor:pointer">−</div>
     </div>
     <div class="code-content">
-        <pre><code class="language-python">class Header:
+        <pre><code class="language-python">@dataclass
+class Header:
+    # Existing fields
     parent_hash: Hash32
     ommers_hash: Hash32
     coinbase: Address
-    pre_state_root: Root  # Changed from state_root
-    transactions_root: Root
-    parent_receipt_root: Root  # Changed from receipt_root
-    parent_bloom: Bloom  # Changed from bloom
+
+    # Pre-execution state root - this is the state root before executing transactions
+    pre_state_root: Root  
+
+    # Deferred execution outputs from parent block
+    parent_transactions_root: Root    # Transaction root from parent block
+    parent_receipt_root: Root         # Receipt root from parent block
+    parent_bloom: Bloom               # Logs bloom from parent block
+    parent_requests_hash: Hash32      # Hash of requests from the parent block
+    parent_execution_reverted: bool   # Indicates if parent block's execution was reverted
+
+    # Other existing fields
     difficulty: Uint
     number: Uint
     gas_limit: Uint
-    parent_gas_used: Uint  # Changed from gas_used
+    gas_used: Uint                   # Declared gas used by txs, validated post-execution
     timestamp: U256
     extra_data: Bytes
     prev_randao: Bytes32
-    blob_gas_used: U64
+    nonce: Bytes8
+    base_fee_per_gas: Uint
+    withdrawals_root: Root
+    blob_gas_used: U64               # Total blob gas used by transactions
     excess_blob_gas: U64
-    parent_beacon_block_root: Root
-    parent_requests_hash: Hash32  # Changed from requests_hash
-    y_parity: U256  # New signature field
-    r: U256  # New signature field
-    s: U256  # New signature field</code></pre>
+    parent_beacon_block_root: Root</code></pre>
     </div>
 </div>
 
 
 <p>The key field changes include:</p>
 <ul>
-    <li><code>state_root</code> → <code>pre_state_root</code>: Now stores the state root <em>before</em> executing this block</li>
-    <li><code>receipt_root</code> → <code>parent_receipt_root</code>: Points to the receipts trie root of the parent block</li>
-    <li><code>bloom</code> → <code>parent_bloom</code>: Now the logs bloom filter of the parent block</li>
-    <li><code>gas_used</code> → <code>parent_gas_used</code>: Now the total gas used in the parent block</li>
-    <li><code>requests_hash</code> → <code>parent_requests_hash</code>: Commitment to Execution Layer requests from the parent block (per EIP-7685)</li>
+    <li><code>pre_transactions_root</code>: Represents the transactions root before execution (checked against the post-execution transactions root of the parent block)</li>
+    <li><code>pre_state_root</code>: Represents the state root before execution (checked against parent block's post-execution state)</li>
+    <li><code>parent_receipt_root</code>: Receipt root from the parent block (deferred execution output)</li>
+    <li><code>parent_bloom</code>: Logs bloom from the parent block (deferred execution output)</li>
+    <li><code>gas_used</code>: Declared gas used by transactions, validated post-execution</li>
+    <li><code>parent_requests_hash</code>: Hash of requests from the parent block (deferred execution output)</li>
 </ul>
 
 <div class="edge-implications">
     <div class="edge-implications-title">Implications</div>
     <div class="edge-implications-content">
-        <p>With these changes, a block no longer contains a direct commitment to its own post-execution state, receipts or general purpose requests. Instead, those will appear in the next block's <code>pre_state_root</code>, <code>parent_receipt_root</code> and <code>parent_requests_hash</code>. This means validators will detect inconsistencies one block later.</p>
-        <p>This one-block delay is by design, but it changes the fact that we no longer know the post state at attestation time.</p>
-    </div>
-</div> 
-
-
-<h4>New Signature Fields</h4>
-<p>Three new fields are added to the header:</p>
-<ul>
-    <li><code>y_parity</code>: The recovery bit (v-value) of the ECDSA signature</li>
-    <li><code>r</code>: The r component of the ECDSA signature (256-bit value)</li>
-    <li><code>s</code>: The s component of the ECDSA signature (256-bit value)</li>
-</ul>
-
-<p>These store an ECDSA signature over the block header, provided by the address listed as <code>coinbase</code> (the block proposer or MEV-Boost builder).</p>
-
-<div class="code-block">
-    <div class="code-header">
-        <span>Header Signature Verification (prague/fork.py)</span>
-        <div class="toggle-btn" onclick="return toggleCodeBlock(this, event)" style="cursor:pointer">−</div>
-    </div>
-    <div class="code-content">
-        <pre><code class="language-python">def validate_block(chain, block):
-    ...
-    # Validate the header signature
-    coinbase = block.header.coinbase
-    header_signer = recover_header_signer(
-        chain.chain_id,
-        block.header,
-    )
-    if coinbase != header_signer:
-        raise InvalidBlock
-    ...
-     </code></pre>
+        <p>A block header must include all these fields to be considered valid. The <code>pre_state_root</code> must match the state root after applying the parent block's execution. The parent execution outputs must accurately reflect the previous block's execution results to maintain chain integrity.</p>
+        <p>With these changes, a block no longer contains a direct commitment to its own post-execution state. Instead, the post-execution state will appear in the next block's <code>pre_state_root</code>, and other execution results will be referenced in the next block's parent fields.</p>
     </div>
 </div>
 
 <div class="rationale">
-    <div class="rationale-title">Rationale for Coinbase Signature Verification</div>
+    <div class="rationale-title">Rationale for Header Changes</div>
     <div class="rationale-content">
-        <p>The coinbase signature verification protects the coinbase (builder) from replayed payments. Since the coinbase address is the one whose balance will be charged for inclusion costs, we require proof that the block proposer agreed to this by signing the block. Without this, a malicious builder could set someone else's address as coinbase to charge them.</p>
+        <p>The core innovation of deferring execution outputs to the next block enables static verification without requiring immediate execution. The <code>pre_state_root</code> provides a cryptographically verifiable starting point for validation, while parent execution outputs create a chain of deferred execution results that maintains the integrity of the blockchain state.</p>
+        <p>This approach eliminates the execution bottleneck in the validation pipeline by allowing validators to attest to a block's validity based on its structure and the pre-charged transaction fees, without waiting for execution results.</p>
     </div>
 </div>

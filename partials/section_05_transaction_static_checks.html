@@ -1,134 +1,129 @@
 <h2 id="transaction-static-checks">5. Transaction Static Checks</h2>
-<p>After the basic header validation, the <code>validate_block</code> function performs static checks on each transaction in the block. These checks focus on state-independent validations.</p>
+<p>During block validation, all transactions undergo static checks to ensure they meet requirements before execution.</p>
 
-
-
-<h4>Transaction Trie Construction</h4>
-<p>Still in the <code>validate_block</code> function, we decode the transactions, statically validate them and build the transactions trie:</p>
+<h4>Transaction Validation Process</h4>
+<p>The pre-execution validation of transactions involves validating signatures, checking sender balances, and tracking nonces:</p>
 
 <div class="code-block">
     <div class="code-header">
-        <span>Transaction Trie Construction (prague/fork.py)</span>
+        <span>Transaction Static Validation</span>
         <div class="toggle-btn" onclick="return toggleCodeBlock(this, event)" style="cursor:pointer">−</div>
     </div>
     <div class="code-content">
-        <pre><code class="language-python">def validate_block(...):
-    # Static Block Validation checks
-    # (discussed in the previous section)
-    ...
+        <pre><code class="language-python">def validate_block(chain: BlockChain, block: Block) -> None:
+    # Previous validation steps
+    # ...
+    
+    # Track sender balances and nonces by address
+    sender_balances = {}
+    sender_nonces = {}
+
+    # ...
+    # Validate each transaction
     for i, tx in enumerate(map(decode_transaction, block.transactions)):
-        sender_address = check_transaction_static(
-            tx,
-            chain.chain_id,
-            block.header.base_fee_per_gas,
-            block.header.excess_blob_gas,
-        )
-        sender_addresses.append(sender_address)
-        _, inclusion_gas = calculate_inclusion_gas_cost(tx)
+        # Validate transaction parameters (signature, fees, etc.)
+        validate_transaction(tx, block.header.base_fee_per_gas, block.header.excess_blob_gas)
+
+        # Recover sender
+        sender_address = recover_sender(chain.chain_id, tx)
+
+        # Calculate gas costs (both EIP-7623 intrinsic cost and floor cost)
+        intrinsic_gas, calldata_floor_gas_cost = calculate_intrinsic_cost(tx)
         blob_gas_used = calculate_total_blob_gas(tx)
-        
-        total_inclusion_gas += inclusion_gas
+
+        # Track total gas usage (using the maximum of intrinsic gas and floor cost)
+        total_inclusion_gas += max(intrinsic_gas, calldata_floor_gas_cost)
         total_blob_gas_used += blob_gas_used
 
-        trie_set(
-            transactions_trie, rlp.encode(Uint(i)), encode_transaction(tx)
-        )
+        # Calculate maximum gas fee (including blob fees)
+        effective_gas_price = calculate_effective_gas_price(tx, block.header.base_fee_per_gas)
+        max_gas_fee = tx.gas * effective_gas_price + blob_gas_used * blob_gas_price
 
-    if total_inclusion_gas > block.header.gas_limit:
+        # ...
+        # Verify sender has sufficient balance
+        if sender_balances[sender_address] < max_gas_fee + Uint(tx.value):
+            raise InvalidBlock
+
+        # Verify correct nonce
+        if sender_nonces[sender_address] != tx.nonce:
+            raise InvalidBlock
+
+        # Track balance and nonce changes
+        sender_balances[sender_address] -= max_gas_fee + Uint(tx.value)
+        sender_nonces[sender_address] += 1
+
+    # Validate gas constraints
+    if total_inclusion_gas > block.header.gas_used:
         raise InvalidBlock
-    if total_blob_gas_used > MAX_BLOB_GAS_PER_BLOCK:
+    if total_blob_gas_used != block.header.blob_gas_used:
         raise InvalidBlock
-    ...
-</code></pre>
+
+    # ...</code></pre>
     </div>
 </div>
 
-<div class="implementation-note">
-    <div class="implementation-note-title">Implementation Note</div>
-    <div class="implementation-note-content">
-        <p>The <code>trie_set</code> function is a helper that sets a value in a trie. It's used here to store the encoded transaction in the transactions trie.</p>
-        <p>We go though all transactions, statically validate them (see next section) and keep track of the total inclusion gas and blob gas used.</p>
-    </div>
-</div> 
-
-<h4>Transaction Static Validation</h4>
-<p>For each transaction in the block, the function calls <code>check_transaction_static</code>:</p>
-
-<div class="code-block">
-    <div class="code-header">
-        <span>Transaction Static Validation (prague/fork.py)</span>
-        <div class="toggle-btn" onclick="return toggleCodeBlock(this, event)" style="cursor:pointer">−</div>
-    </div>
-    <div class="code-content">
-        <pre><code class="language-python">
-def check_transaction_static(
-    tx: Transaction,
-    chain_id: U64,
-    base_fee_per_gas: U64,
-    excess_blob_gas: U64,
-) -> Address:
-
-    if not validate_transaction(tx):
-        raise InvalidBlock
-
-    if isinstance(tx, (FeeMarketTransaction, BlobTransaction, SetCodeTransaction)):
-        if tx.max_fee_per_gas < tx.max_priority_fee_per_gas:
-            raise InvalidBlock
-        if tx.max_fee_per_gas < base_fee_per_gas:
-            raise InvalidBlock
-    else:
-        if tx.gas_price < base_fee_per_gas:
-            raise InvalidBlock
-
-    if isinstance(tx, BlobTransaction):
-        if not isinstance(tx.to, Address):
-            raise InvalidBlock
-        if len(tx.blob_versioned_hashes) == 0:
-            raise InvalidBlock
-        for blob_versioned_hash in tx.blob_versioned_hashes:
-            if blob_versioned_hash[0:1] != VERSIONED_HASH_VERSION_KZG:
-                raise InvalidBlock
-        blob_gas_price = calculate_blob_gas_price(excess_blob_gas)
-        if Uint(tx.max_fee_per_blob_gas) < blob_gas_price:
-            raise InvalidBlock
-        
-    if isinstance(tx, SetCodeTransaction):
-        if not any(tx.authorizations):
-            raise InvalidBlock       
-            
-    return recover_sender(chain_id, tx)</code></pre>
-    </div>
-</div>
-
-<p>This helper function performs:</p>
+<h4>Key Validation Requirements</h4>
 <ol>
-    <li><strong>Basic format validation</strong>: Ensures the transaction has correct encoding and no malformed fields.</li>
-    <li><strong>Fee field checks</strong>: For EIP-1559 transactions, verifies <code>max_fee_per_gas >= max_priority_fee_per_gas</code> and <code>max_fee_per_gas >= base_fee_per_gas</code>. For legacy transactions, checks that <code>gas_price >= base_fee_per_gas</code>.</li>
-    <li><strong>Specialized transaction checks</strong>: For blob transactions or other specific transaction types, performs type-specific validations.</li>
-    <li><strong>Sender recovery</strong>: Recovers the sender's address from the transaction signature.</li>
-</ol>
-
-<p>The code:</p>
-<ol>
-    <li>Calculates total inclusion gas (minimum gas consumed to include the transaction)</li>
-    <li>Verifies this doesn't exceed the block gas limit</li>
-    <li>Checks total blob gas against protocol maximum</li>
-    <li>Computes total inclusion cost in WEI</li>
-    <li>Ensures the coinbase has enough balance to cover this cost</li>
+    <li><strong>Transaction Validation</strong>: Each transaction is validated for signature correctness and transaction type-specific requirements</li>
+    <li><strong>Balance Checks</strong>: Verifies senders have sufficient balance to cover maximum possible gas fees plus transaction value</li>
+    <li><strong>Nonce Validation</strong>: Ensures transaction nonces are correct and sequential</li>
+    <li><strong>Gas Limits</strong>: Validates that total gas usage doesn't exceed block limits</li>
 </ol>
 
 <div class="rationale">
-    <div class="rationale-title">Rationale for Static Transaction Checks</div>
+    <div class="rationale-title">Rationale for Pre-Charging Mechanism</div>
     <div class="rationale-content">
-        <p>Separating <code>check_transaction_static</code> is crucial. These checks don't depend on the current state (except the known base fee and excess blob gas). By performing them upfront, we ensure that by the time we reach execution, all transactions have correct signatures, meet base fee requirements, and won't violate basic protocol rules.</p>
-        <p>The coinbase balance check is an important new rule that requires the block proposer or builder to have enough ETH to front the cost of including all transactions. This prevents a scenario where a proposer includes many transactions that end up skipped and cannot actually pay the fees they owe the network.</p>
+        <p>Pre-charging senders with the maximum possible fees before execution provides a crucial guarantee that transactions have sufficient balance to be included in the block. This mechanism is compatible with existing fee models, including EIP-1559 and EIP-4844.</p>
+        <p>By tracking sender balances and nonces during validation, the protocol can enforce transaction validity without execution, enabling earlier block attestation.</p>
+        <p>At the time of attestation, the transaction fees are reserved and the nonces are checked, such that the only thing left that could invalidate the block is exceeding the block gas limit. Thus, clients can stop execution if the declared gas used is reached and revert the payload's state changes.</p>
     </div>
 </div>
 
 <div class="implementation-note">
     <div class="implementation-note-title">Implementation Note</div>
     <div class="implementation-note-content">
-        <p>Inclusion gas is essentially the <strong>minimum gas that will be consumed simply by including the transaction</strong> (the fixed 21,000 plus costs for calldata and blobs). It represents the base data cost of the transaction, ignoring any execution logic.</p>
-        <p>During validation, <code>sender_addresses</code> are collected and will be passed to <code>apply_body</code> for execution. This prevents having to recover signatures a second time during execution.</p>
+        <p>The function keeps track of sender balances and nonces in memory, updating them as if transactions were executed. Futhermore, it pre-charges the sender's balance for the maximum possible fees. With the reserved balances and the correct nonces transactions are guaranteed to be valid.</p>
+    </div>
+</div> 
+
+
+<div class="code-block">
+    <div class="code-header">
+        <span>Transaction Processing</span>
+        <div class="toggle-btn" onclick="return toggleCodeBlock(this, event)" style="cursor:pointer">−</div>
+    </div>
+    <div class="code-content">
+        <pre><code class="language-python">def process_transactions(block_env: vm.BlockEnvironment, block_output: vm.BlockOutput, transactions: Tuple[Union[LegacyTransaction, Bytes], ...]) -> None:
+    take_block_level_snapshot(block_env.state)
+
+    decoded_transactions = [decode_transaction(tx) for tx in transactions]
+
+    # Charge senders the maximum fees upfront
+    for tx in decoded_transactions:
+        deduct_max_tx_fee_from_sender_balance(block_env, tx)
+    
+    # Start execution
+    # ...</code></pre>
+
+<div class="code-block">
+    <div class="code-header">
+        <span>Pree Charge Maximum Fee</span>
+        <div class="toggle-btn" onclick="return toggleCodeBlock(this, event)" style="cursor:pointer">−</div>
+    </div>
+    <div class="code-content">
+        <pre><code class="language-python">def deduct_max_tx_fee_from_sender_balance(block_env: vm.BlockEnvironment, tx: Transaction) -> None:
+            effective_gas_price = calculate_effective_gas_price(tx, block_env.base_fee_per_gas)
+            blob_gas_price = calculate_blob_gas_price(block_env.excess_blob_gas)
+            blob_gas_used = calculate_total_blob_gas(tx)
+            max_gas_fee = tx.gas * effective_gas_price + blob_gas_used * blob_gas_price
+            sender = recover_sender(block_env.chain_id, tx)
+            sender_account = get_account(block_env.state, sender)
+            set_account_balance(block_env.state, sender, sender_account.balance - U256(max_gas_fee))</code></pre>
+
+
+<div class="implementation-note">
+    <div class="implementation-note-title">Deduct Max Fee</div>
+    <div class="implementation-note-content">
+        <p>The function pre-charges the sender's balance for the maximum possible fees. With the reserved balances and the correct nonces transactions are guaranteed to be valid.</p>
     </div>
 </div> 

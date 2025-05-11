@@ -1,84 +1,27 @@
-<h2 id="transaction-execution-changes">7. Transaction Execution Changes</h2>
-<p>The <a href="https://github.com/ethereum/execution-specs/blob/ae2c77989cb83e5d5e5eb1f51d9da840a337d5b0/src/ethereum/prague/fork.py#L999"><code></code>process_transaction</code></a> function requires modifications to support delayed execution. The key changes involve fee handling and how transactions are processed when pre-execution checks fail.</p>
+<h2 id="transaction-execution-changes">7. Security Considerations</h2>
+<p>Delayed execution introduces several important security aspects that must be carefully considered.</p>
 
-<h4>Modified Transaction Execution</h4>
-<p>The revised transaction execution process:</p>
+<h4>Execution Correctness Guarantees</h4>
+<p>The protocol ensures execution correctness through two primary mechanisms:</p>
 <ol>
-    <li>Calculate intrinsic gas costs and calldata floor gas costs</li>
-    <li>Increment sender's nonce</li>
-    <li>Subtract max gas fee and blob gas fee from sender's balance</li>
-    <li>Prepare and process the message call</li>
-    <li>Calculate total gas used including execution gas refund</li>
-    <li>Apply gas refund to the sender</li>
-    <li>Calculate and apply priority fees to the coinbase</li>
-    <li>Refund inclusion costs for executed transactions</li>
+    <li><strong>Deferred Execution Validation</strong>: Execution outputs must match in subsequent blocks, creating a chain of verifiable execution results</li>
+    <li><strong>State Rollback Mechanism</strong>: State rollback occurs if the actual gas used doesn't match the declared value, providing an economic incentive for correct gas declaration</li>
 </ol>
 
-<div class="code-block">
-    <div class="code-header">
-        <span>Transaction Processing (prague/transactions.py)</span>
-        <div class="toggle-btn" onclick="return toggleCodeBlock(this, event)" style="cursor:pointer">−</div>
-    </div>
-    <div class="code-content">
-        <pre><code class="language-python">def process_transaction(
-    env: vm.Environment, tx: Transaction
-) -> Tuple[Uint, Tuple[Log, ...], Optional[EthereumException]]:
-    # Calculate intrinsic gas cost and calldata floor gas cost
-    intrinsic_gas, calldata_floor_gas_cost = calculate_intrinsic_gas_cost(tx)
-    sender = env.origin
-    sender_account = get_account(env.state, sender)
-    coinbase_account = get_account(env.state, env.coinbase)
-    increment_nonce(env.state, sender)
+<h4>Data Availability and Economic Incentives</h4>
+<p>Block proposers must declare correct gas usage or lose transaction fees when execution is rolled back. This aligns incentives for correct gas declaration and ensures execution integrity.</p>
 
-    # Calculate max gas fee and blob gas fee
-    max_gas_fee = tx.gas * env.gas_price
-    blob_gas_fee = calculate_data_fee(env.excess_blob_gas, tx)
+<p>Even when a block's execution is reverted due to incorrect gas declaration, the transaction data (calldata, access lists, and blob data) must still be stored by all nodes for syncing and block validation purposes. This requirement creates a potential attack vector where malicious actors could attempt to place large amounts of data on-chain at a reduced cost by intentionally invalidating blocks through incorrect gas declarations.</p>
 
-    # Subtract max gas fee and blob gas fee from sender's balance
-    sender_balance_after_gas_fee = (
-        sender_account.balance
-        - U256(max_gas_fee + blob_gas_fee)
-    )
-    set_account_balance(env.state, sender, sender_balance_after_gas_fee)
-    ...
-    gas = tx.gas - intrinsic_gas
-    message = prepare_message(...)
-
-    output = process_message_call(message, env)
-
-    ...
-
-    # Calculate inclusion cost refund for the coinbase
-    inclusion_cost_refund = (
-        calculate_inclusion_gas_cost(tx)[1] * env.base_fee_per_gas
-        + blob_gas_fee
-    )
-    
-    # transfer priority fees and refund inclusion cost
-    coinbase_balance_after_transaction = (
-        coinbase_account.balance 
-        + U256(priority_fee)
-        + U256(inclusion_cost_refund)
-    )
-    if coinbase_balance_after_transaction != 0:
-        set_account_balance(
-            env.state, env.coinbase, coinbase_balance_after_transaction
-        )
-    ...</code></pre>
+<div class="rationale">
+    <div class="rationale-title">Economic Security Analysis</div>
+    <div class="rationale-content">
+        <p>This attack is not economically sustainable for several reasons:</p>
+        <ol>
+            <li>Block proposers who invalidate blocks through incorrect gas declarations lose all execution layer rewards associated with the block.</li>
+            <li>The attack requires control of block production, which is a scarce resource in the consensus layer.</li>
+        </ol>
+        <p>The economic costs of forgoing block rewards significantly outweigh any potential benefits, making such attacks financially impractical under normal network conditions.</p>
     </div>
 </div>
 
-
-<div class="implementation-note">
-    <div class="implementation-note-title">Implementation Note</div>
-    <div class="implementation-note-content">
-        <p>The inclusion cost refund calculation <code>calculate_inclusion_gas_cost(tx)[1] * env.base_fee_per_gas + blob_gas_fee</code> covers both the base fee portion of inclusion gas and any blob fees. For executed (non-skipped) transactions, this is returned to the coinbase rather than being burned. Refunding inclusion costs only for executed transactions ensures block builders have a clear incentive to not include skipped transactions in their blocks.</p>
-    </div>
-</div>
-
-<div class="edge-implications">
-    <div class="edge-implications-title">Incompatibility Implications</div>
-    <div class="edge-implications-content">
-        <p>Delayed execution is incompatible with proposals that require immediate execution for additional EL payload validation that go beyond the validity checks of individual transactions. On example is the current design of FOCIL, which requires ILs to be validated after executing all transaction in the block. There are <a href="https://hackmd.io/@Nerolation/BJFix4E2kx">solutions to this problem</a> though.</p>
-    </div>
-</div>
